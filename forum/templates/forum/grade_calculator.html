@@ -1,0 +1,384 @@
+{% extends 'forum/base.html' %}
+
+{% block head %}
+{% load static %}
+    <link rel="stylesheet" href="{% static 'forum/css/schedule.css' %}">
+    <link rel="stylesheet" href="{% static 'forum/css/grade-calculator.css' %}">
+    <link rel="stylesheet" href="{% static 'forum/css/user-selector.css' %}">
+    <link rel="stylesheet" href="{% static 'forum/css/post-card.css' %}">
+    
+    <script type="module" src="{% static 'forum/js/user-selector.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- User Management Section -->
+    <div class="card mb-4" style="z-index: 2 !important;">
+        <div class="card-body text-center">
+            <h5 class="card-title mb-3">Comparing grades:</h5>
+            
+            <!-- Selected Users Display -->
+            <div id="selected-users" class="d-flex flex-wrap gap-2 mb-3 justify-content-center">
+                <!-- Selected users will be dynamically added here -->
+            </div>
+            
+            <!-- Add User Section -->
+            <div class="d-flex justify-content-center">
+                <div id="user-selector-container" style="max-width: 400px;">
+                    <!-- User selector will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Grade Comparison Section -->
+    <div id="comparison-section" style="display: none;">
+        <!-- Grade Statistics Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Grade Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <p class="text-muted mb-1">Average GPA</p>
+                            <h3 id="avg-gpa" class="text-primary">-</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <p class="text-muted mb-1">Highest GPA</p>
+                            <h3 id="highest-gpa" class="text-success">-</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <p class="text-muted mb-1">Lowest GPA</p>
+                            <h3 id="lowest-gpa" class="text-danger">-</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="text-center">
+                            <p class="text-muted mb-1">Users Compared</p>
+                            <h3 id="user-count" class="text-info">-</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Individual GPA Cards Row -->
+        <div class="row">
+            <div class="col-12">
+                <h5 class="mb-3">Individual GPAs</h5>
+            </div>
+        </div>
+        <div id="gpa-cards-container" class="row mb-4">
+            <!-- GPA cards will be dynamically added here -->
+        </div>
+
+        <!-- Detailed Grades by Marking Period -->
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">Detailed Grades by Marking Period</h5>
+            </div>
+            <div class="card-body">
+                <ul class="nav nav-tabs mb-3" id="gradeTabs" role="tablist">
+                    <!-- Marking period tabs will be dynamically added here -->
+                </ul>
+                <div class="tab-content" id="gradeTabContent">
+                    <!-- Tab panes will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Empty state -->
+    <div id="empty-state" class="text-center py-5">
+        <i class="fas fa-graduation-cap fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">No users selected</h5>
+        <p class="text-muted">Search and add users to compare their grades and GPA</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if user.is_authenticated %}
+<script>
+    window.currentUser = {
+        id: {{ user.id }},
+        username: '{{ user.username }}',
+        full_name: '{{ user.get_full_name }}',
+        school_email: '{{ user.school_email }}',
+        profile_picture_url: '{{user.userprofile.profile_picture.url}}',
+    }; 
+</script>
+{% endif %}
+
+<script type="module">
+import { UserSelector } from '{% static "forum/js/user-selector.js" %}';
+
+document.addEventListener('DOMContentLoaded', function() {
+    const comparisonSection = document.getElementById('comparison-section');
+    const emptyState = document.getElementById('empty-state');
+    const selectedUsersContainer = document.getElementById('selected-users');
+    const gpaCardsContainer = document.getElementById('gpa-cards-container');
+    
+    let selectedUsersData = [];
+    let selectedUsers = [];
+    let allGradesData = [];
+    
+    // Initialize UserSelector
+    const userSelector = new UserSelector({
+        containerId: 'user-selector-container',
+        onUserSelect: function(user) {
+            // Add user to our local list if not already selected
+            if (!selectedUsers.find(u => u.id === user.id)) {
+                selectedUsers.push(user);
+                fetchUserGrades(user);
+                updateSelectedUsersDisplay(selectedUsers);
+                
+                // Update excluded users for UserSelector
+                userSelector.updateExcludeUsers(selectedUsers);
+            }
+        },
+        excludeUsers: selectedUsers
+    });
+    
+    // Add current user by default
+    if (window.currentUser) {
+        selectedUsers = [window.currentUser];
+        fetchUserGrades(window.currentUser);
+        updateSelectedUsersDisplay(selectedUsers);
+        userSelector.updateExcludeUsers(selectedUsers);
+    }
+    
+    function fetchUserGrades(user) {
+        fetch(`/api/user-grades/${user.id}/`)
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || 'Failed to fetch grades');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                selectedUsersData.push(data);
+                updateLayout();
+            })
+            .catch(error => {
+                console.error('Error fetching user grades:', error);
+                const errorMessage = error.message || 'Error fetching user grades';
+                alert(`Unable to fetch grades for ${user.full_name}: ${errorMessage}`);
+                removeUserFromComparison(user.id);
+            });
+    }
+    
+    function updateSelectedUsersDisplay(users) {
+        selectedUsersContainer.innerHTML = users.map(user => `
+            <span class="badge d-flex align-items-center gap-2 pill-btn btn-outline-secondary">
+                <img src="${user.profile_picture_url}" alt="Profile Picture" class="rounded-circle" style="width: 24px; height: 24px; object-fit: cover;">
+                ${user.full_name}
+                <span class="user-remove-btn remove-btn" 
+                        data-user-id="${user.id}"
+                        aria-label="Remove ${user.full_name}">&times</span>
+            </span>
+        `).join('');
+
+        // Add event listeners to remove buttons
+        selectedUsersContainer.querySelectorAll('.user-remove-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const userId = parseInt(btn.dataset.userId);
+                removeUserFromComparison(userId);
+            });
+        });
+    }
+    
+    function removeUserFromComparison(userId) {
+        selectedUsers = selectedUsers.filter(user => user.id !== userId);
+        selectedUsersData = selectedUsersData.filter(userData => userData.user_id !== userId);
+        
+        updateSelectedUsersDisplay(selectedUsers);
+        updateLayout();
+        userSelector.updateExcludeUsers(selectedUsers);
+    }
+    
+    function updateLayout() {
+        if (selectedUsersData.length === 0) {
+            comparisonSection.style.display = 'none';
+            emptyState.style.display = 'block';
+            return;
+        }
+
+        comparisonSection.style.display = 'block';
+        emptyState.style.display = 'none';
+        arrangeCurrentUserFirst();
+        updateStatistics();
+        updateGpaCards();
+        updateDetailedGrades();
+    }
+    
+    function arrangeCurrentUserFirst() {
+        if (!window.currentUser) return;
+        
+        const currentUserDataIndex = selectedUsersData.findIndex(userData => userData.user_id === window.currentUser.id);
+        if (currentUserDataIndex > 0) {
+            const currentUserData = selectedUsersData.splice(currentUserDataIndex, 1)[0];
+            selectedUsersData.unshift(currentUserData);
+        }
+        
+        const currentUserIndex = selectedUsers.findIndex(user => user.id === window.currentUser.id);
+        if (currentUserIndex > 0) {
+            const currentUserObj = selectedUsers.splice(currentUserIndex, 1)[0];
+            selectedUsers.unshift(currentUserObj);
+        }
+        
+        updateSelectedUsersDisplay(selectedUsers);
+    }
+    
+    function updateStatistics() {
+        let totalGpa = 0;
+        let highestGpa = -Infinity;
+        let lowestGpa = Infinity;
+        let validGpaCount = 0;
+        
+        selectedUsersData.forEach(userData => {
+            if (userData.gpa) {
+                const gpa = userData.gpa.gpa;
+                totalGpa += gpa;
+                highestGpa = Math.max(highestGpa, gpa);
+                lowestGpa = Math.min(lowestGpa, gpa);
+                validGpaCount++;
+            }
+        });
+        
+        const avgGpa = validGpaCount > 0 ? (totalGpa / validGpaCount).toFixed(2) : '-';
+        
+        document.getElementById('avg-gpa').textContent = avgGpa !== '-' ? avgGpa : '-';
+        document.getElementById('highest-gpa').textContent = highestGpa !== -Infinity ? highestGpa.toFixed(2) : '-';
+        document.getElementById('lowest-gpa').textContent = lowestGpa !== Infinity ? lowestGpa.toFixed(2) : '-';
+        document.getElementById('user-count').textContent = validGpaCount;
+    }
+    
+    function updateGpaCards() {
+        gpaCardsContainer.innerHTML = '';
+        
+        selectedUsersData.forEach((userData, index) => {
+            const gpaData = userData.gpa;
+            const gpaValue = gpaData ? gpaData.gpa : 'N/A';
+            const courseCount = gpaData ? gpaData.course_count : 0;
+            
+            const card = document.createElement('div');
+            card.className = 'col-md-6 col-lg-4 mb-3';
+            card.innerHTML = `
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <img src="${userData.profile_picture_url}" alt="${userData.full_name}" 
+                                 class="rounded-circle" style="width: 48px; height: 48px; object-fit: cover;">
+                            <div>
+                                <h6 class="mb-0">${userData.full_name}</h6>
+                                <small class="text-muted">@${userData.username}</small>
+                            </div>
+                        </div>
+                        <div class="text-center py-3">
+                            <p class="text-muted mb-1">Current GPA</p>
+                            <h4 class="text-primary">${gpaValue !== 'N/A' ? parseFloat(gpaValue).toFixed(2) : gpaValue}</h4>
+                            <small class="text-muted">${courseCount} courses</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            gpaCardsContainer.appendChild(card);
+        });
+    }
+    
+    function updateDetailedGrades() {
+        const gradeTabs = document.getElementById('gradeTabs');
+        const gradeTabContent = document.getElementById('gradeTabContent');
+        
+        gradeTabs.innerHTML = '';
+        gradeTabContent.innerHTML = '';
+        
+        const allMarkingPeriods = new Set();
+        selectedUsersData.forEach(userData => {
+            Object.keys(userData.grades).forEach(mpId => {
+                allMarkingPeriods.add(mpId);
+            });
+        });
+        
+        const sortedMPs = Array.from(allMarkingPeriods).sort();
+        
+        sortedMPs.forEach((mpId, index) => {
+            // Create tab
+            const tabButton = document.createElement('button');
+            tabButton.className = `nav-link ${index === 0 ? 'active' : ''}`;
+            tabButton.id = `mp-tab-${index}`;
+            tabButton.setAttribute('data-bs-toggle', 'tab');
+            tabButton.setAttribute('data-bs-target', `#mp-content-${index}`);
+            tabButton.setAttribute('type', 'button');
+            tabButton.setAttribute('role', 'tab');
+            tabButton.innerHTML = `Marking Period: ${mpId}`;
+            gradeTabs.appendChild(tabButton);
+            
+            // Create tab content
+            const tabPane = document.createElement('div');
+            tabPane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
+            tabPane.id = `mp-content-${index}`;
+            tabPane.setAttribute('role', 'tabpanel');
+            
+            const tableHtml = `
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Student</th>
+                                ${selectedUsersData.map(u => `<th>${u.full_name}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${selectedUsersData.map((userData, userIndex) => {
+                                const gradeData = userData.grades[mpId];
+                                if (!gradeData) return '';
+                                
+                                return `
+                                    <tr>
+                                        <td><strong>${userData.full_name}</strong></td>
+                                        ${gradeData.courses ? gradeData.courses.map((course, courseIndex) => `
+                                            <td>
+                                                <span class="badge bg-info">${JSON.stringify(course.data).substring(0, 50)}</span>
+                                            </td>
+                                        `).join('') : '<td>-</td>'}
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            tabPane.innerHTML = tableHtml;
+            gradeTabContent.appendChild(tabPane);
+        });
+        
+        // Initialize Bootstrap tabs
+        const tabElements = gradeTabs.querySelectorAll('[data-bs-toggle="tab"]');
+        tabElements.forEach(el => {
+            new bootstrap.Tab(el);
+        });
+    }
+    
+    // Initialize layout
+    updateLayout();
+    
+    // Redraw on window resize
+    window.addEventListener('resize', () => {
+        if (selectedUsersData.length > 1) {
+            updateLayout();
+        }
+    });
+});
+</script>
+{% endblock %}

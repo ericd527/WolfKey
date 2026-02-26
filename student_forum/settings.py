@@ -396,7 +396,7 @@ try:
             
 except Exception as e:
     print(f"Error configuring Redis SSL: {e}")
-    # If anything goes wrong reading the URL, do not set the override here.
+    # If anything goes  wrong reading the URL, do not set the override here.
     pass
 
 # Improve connection reliability and timeouts

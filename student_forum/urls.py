@@ -92,6 +92,12 @@ from forum.views.comments_views import (
 from forum.views.course_comparer_views import (
     course_comparer
 )
+from forum.views.grade_calculator_views import (
+    grade_calculator,
+    get_user_grades_api,
+    compare_grades_api,
+    grade_trend_api
+)
 from forum.views.timetable_assigner_views import (
     timetable_assigner
 )
@@ -252,6 +258,12 @@ urlpatterns = [
     path('match/', course_comparer, name='course_comparer'),
     path('atlas/', timetable_assigner, name='timetable_assigner'),
     path('api/search-users/', search_users_api, name='search_users_api'),
+    
+    # Grade calculator URLs
+    path('grades/', grade_calculator, name='grade_calculator'),
+    path('api/user-grades/<int:user_id>/', get_user_grades_api, name='api_user_grades'),
+    path('api/grades/compare/', compare_grades_api, name='api_compare_grades'),
+    path('api/grades/trend/<int:user_id>/', grade_trend_api, name='api_grade_trend'),
 
     # Saved posts URLs
     path('followed-posts/', followed_posts, name='followed_posts'),
